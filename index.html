@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CORE-T | Neural Telemetry</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600&family=Space+Mono&display=swap" rel="stylesheet">
+  
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --text-main: #ffffff;
+      --text-muted: #8892b0;
+      --cyan-primary: #00d2ff;
+      --glass-bg: rgba(10, 10, 15, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-hover: rgba(0, 210, 255, 0.15);
+      --warning: #ffb86c;
+      --danger: #ff5555;
+      --good: #50fa7b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Rajdhani', sans-serif; min-height: 100vh; color: var(--text-main); background-color: #000000; overflow-x: hidden; }
+    body.locked { overflow: hidden; }
+
+    #networkCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+    #intro-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.8s ease-in-out, transform 0.8s ease-in-out; }
+    #intro-screen.fade-out { opacity: 0; transform: scale(1.05); pointer-events: none; }
+
+    .animated-logo { display: flex; font-weight: 300; font-size: 7.5rem; letter-spacing: 25px; margin-left: 25px; }
+    .letter { opacity: 0; transform: translateY(20px); background: linear-gradient(180deg, #ffffff 20%, #8892b0 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; -webkit-text-stroke: 1px rgba(0, 210, 255, 0.4); animation: aestheticReveal 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+    .letter:nth-child(1) { animation-delay: 0.2s; } .letter:nth-child(2) { animation-delay: 0.3s; } .letter:nth-child(3) { animation-delay: 0.4s; } .letter:nth-child(4) { animation-delay: 0.5s; }
+    .letter:nth-child(5) { animation-delay: 0.6s; margin-left: 5px; background: var(--cyan-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; -webkit-text-stroke: 0; }
+    .letter:nth-child(6) { animation-delay: 0.7s; }
+
+    @keyframes aestheticReveal { to { opacity: 1; transform: translateY(0); } }
+
+    .intro-subtitle { margin-top: 15px; font-family: 'Space Mono', monospace; font-size: 0.9rem; letter-spacing: 8px; color: rgba(255, 255, 255, 0.7); text-transform: uppercase; opacity: 0; transform: translateY(10px); animation: fadeUp 0.8s forwards 1.3s; text-align: center; }
+
+    /* Bulletproof Button styling */
+    .aesthetic-btn { margin-top: 60px; padding: 14px 55px; font-family: 'Space Mono', monospace; font-size: 0.9rem; letter-spacing: 5px; color: var(--text-main); background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 210, 255, 0.4); border-radius: 2px; cursor: pointer; opacity: 0; transition: all 0.4s ease; animation: fadeUp 0.8s forwards 1.7s; backdrop-filter: blur(4px); }
+    .aesthetic-btn:hover { background: var(--cyan-primary); color: #000000; border-color: var(--cyan-primary); box-shadow: 0 0 20px rgba(0, 210, 255, 0.2); }
+    @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+    .glass-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px 20px; color: #fff; font-family: 'Space Mono', monospace; font-size: 0.9rem; width: 100%; max-width: 300px; border-radius: 2px; outline: none; transition: border 0.3s; }
+    .glass-input:focus { border-color: var(--cyan-primary); }
+    .glass-input.small { padding: 8px 12px; max-width: 200px; }
+
+    #main-dashboard { display: none; flex-direction: column; align-items: center; width: 100%; padding: 2rem; opacity: 0; transform: translateY(20px); transition: opacity 0.8s ease, transform 0.8s ease; }
+    #main-dashboard.visible { opacity: 1; transform: translateY(0); }
+
+    .header { text-align: center; margin-bottom: 4rem; width: 100%; max-width: 1100px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 1.5rem; margin-top: 1rem; }
+    .header h1 { font-weight: 300; letter-spacing: 10px; font-size: 2rem; color: #ffffff; }
+    .header h1 span { color: var(--cyan-primary); }
+
+    .status-badge { padding: 0.5rem 1.2rem; border-radius: 2px; font-family: 'Space Mono', monospace; font-size: 0.75rem; letter-spacing: 2px; background: rgba(0, 210, 255, 0.05); color: var(--cyan-primary); border: 1px solid rgba(0, 210, 255, 0.3); display: flex; align-items: center; gap: 10px; backdrop-filter: blur(5px); }
+    .status-badge.warning { color: var(--warning); border-color: var(--warning); background: rgba(255, 184, 108, 0.05); }
+    .status-badge.warning .dot { background-color: var(--warning); }
+    .dot { width: 6px; height: 6px; background-color: var(--cyan-primary); border-radius: 50%; animation: blink 2s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; width: 100%; max-width: 1100px; }
+    .card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 6px; padding: 2.5rem; display: flex; flex-direction: column; position: relative; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); transition: all 0.4s ease; }
+    .card.full-width { grid-column: 1 / -1; }
+    .card:hover { border-color: rgba(0, 210, 255, 0.4); background: var(--glass-hover); transform: translateY(-3px); }
+
+    .card-title { font-family: 'Space Mono', monospace; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1.5rem; }
+    .card-value { font-size: 3.5rem; font-weight: 300; display: flex; align-items: baseline; gap: 8px; color: #ffffff; transition: color 0.3s; }
+    .card-unit { font-size: 1.2rem; color: var(--text-muted); font-weight: 400; }
+
+    .device-panel { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    .mono-data { font-family: 'Space Mono', monospace; color: var(--cyan-primary); font-size: 0.9rem; }
+    .mono-data.warning { color: var(--warning); }
+
+    .btn-small, .btn-icon, .btn-full { font-family: 'Space Mono', monospace; font-size: 0.8rem; letter-spacing: 2px; padding: 10px 20px; background: var(--cyan-primary); color: #000; border: 1px solid var(--cyan-primary); cursor: pointer; transition: 0.3s; border-radius: 2px; text-transform: uppercase; }
+    .btn-small.outline, .btn-icon.outline { background: transparent; color: var(--cyan-primary); }
+    .btn-small.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+    .btn-small.danger:hover { background: var(--danger); color: #fff; }
+    .btn-small:hover:not(.danger), .btn-icon:hover { background: #fff; color: #000; border-color: #fff; box-shadow: 0 0 15px rgba(0, 210, 255, 0.3); }
+    .btn-full { width: 100%; margin-top: 1rem; }
+    .btn-icon { padding: 5px 15px; font-size: 1.5rem; }
+
+    .status-row { font-family: 'Space Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem; }
+    .status-row span { color: var(--cyan-primary); }
+    .status-row span.good { color: var(--good); }
+    .status-row span.warning { color: var(--warning); }
+
+    .mode-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mode-btn { background: transparent; border: 1px solid var(--glass-border); color: var(--text-muted); padding: 12px; font-family: 'Space Mono', monospace; font-size: 0.8rem; cursor: pointer; transition: 0.3s; border-radius: 2px; }
+    .mode-btn.active { border-color: var(--cyan-primary); color: var(--cyan-primary); background: rgba(0, 210, 255, 0.1); }
+    .mode-btn.warning.active { border-color: var(--warning); color: var(--warning); background: rgba(255, 184, 108, 0.1); }
+
+    .comfort-display h2 { font-size: 2rem; color: var(--cyan-primary); font-weight: 400; margin-bottom: 0.5rem; transition: color 0.3s; }
+    .sub-text { font-size: 0.9rem; color: var(--text-muted); }
+    .chart-container { width: 100%; height: 250px; position: relative; }
+    .ac-controls { display: flex; flex-direction: column; align-items: center; }
+    .btn-group { display: flex; gap: 10px; }
+
+    .slider-container { margin-top: auto; padding-top: 2.5rem; }
+    input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+    input[type=range]:focus { outline: none; }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 2px; background: rgba(255, 255, 255, 0.15); border-radius: 1px; }
+    input[type=range]::-webkit-slider-thumb { height: 16px; width: 16px; border-radius: 50%; background: #ffffff; cursor: pointer; -webkit-appearance: none; margin-top: -7px; transition: all 0.2s ease; }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); background: var(--cyan-primary); }
+    input[type=range]:disabled::-webkit-slider-thumb { background: #555; cursor: not-allowed; }
+  </style>
+</head>
+<body class="locked">
+
+  <canvas id="networkCanvas"></canvas>
+
+  <div id="intro-screen">
+    <div class="animated-logo">
+      <span class="letter">C</span><span class="letter">O</span><span class="letter">R</span><span class="letter">E</span><span class="letter">-</span><span class="letter">T</span>
+    </div>
+    <div class="intro-subtitle">Centralized Operations & Remote Telemetry</div>
+    <button id="init-btn" class="aesthetic-btn" onclick="app.enterDashboard()">INITIALIZE</button>
+  </div>
+
+  <div id="main-dashboard">
+    <header class="header">
+      <h1>CORE<span>-</span>T</h1>
+      <div id="mode-badge" class="status-badge warning">
+        <div class="dot"></div>
+        <span id="system-mode-text">DEMO MODE</span>
+      </div>
+      <div id="connection-status" class="status-badge warning">
+        <div class="dot"></div>
+        <span id="status-text">OFFLINE</span>
+      </div>
+      <button class="btn-icon outline" onclick="window.location.reload()" title="Restart">⏏</button>
+    </header>
+
+    <div class="dashboard-grid">
+      <div class="card full-width">
+        <div class="card-title">Device Link & Registry</div>
+        <div class="device-panel">
+          <div class="device-info">
+            <p>Active ID: <span id="dev-id" class="mono-data">UNASSIGNED</span></p>
+            <p>Cloud Link: <span id="dev-cloud" class="mono-data warning">DISCONNECTED</span></p>
+            <p>Last Ping: <span id="dev-ping" class="mono-data">--</span></p>
+          </div>
+          <div class="device-actions">
+            <select id="device-selector" class="glass-input small" onchange="app.switchDevice(this.value)">
+              <option value="demo">Demo Simulation</option>
+            </select>
+            <button class="btn-small outline" onclick="app.promptPairing()">+ PAIR HARDWARE</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ambient Temp (SHT31)</div>
+        <div class="card-value"><span id="val-ambient">--</span><span class="card-unit">°C</span></div>
+        <div class="status-row">Sensor: <span id="health-ambient" class="good">OK</span></div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">Skin Surface (MLX90614)</div>
+        <div class="card-value"><span id="val-object">--</span><span class="card-unit">°C</span></div>
+        <div class="status-row">Sensor: <span id="health-object" class="good">OK</span></div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">Relative Humidity</div>
+        <div class="card-value"><span id="val-humidity">--</span><span class="card-unit">%</span></div>
+        <div class="status-row">Source: <span id="health-humidity" class="good">OK</span></div>
+      </div>
+
+      <div class="card control">
+        <div class="card-title">Comfort Intelligence</div>
+        <div class="comfort-display">
+          <h2 id="comfort-status" class="status-text">ANALYZING...</h2>
+          <p class="sub-text">Neural rule-based estimation</p>
+        </div>
+        <div class="feedback-panel">
+          <p class="sub-text" style="margin: 15px 0 5px;">Operator Feedback:</p>
+          <div class="btn-group" style="width: 100%;">
+            <button class="btn-small" onclick="app.submitFeedback('COLD')">TOO COLD</button>
+            <button class="btn-small outline" onclick="app.submitFeedback('GOOD')">GOOD</button>
+            <button class="btn-small danger" onclick="app.submitFeedback('HOT')">TOO HOT</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">System Directives</div>
+        <div class="mode-selector">
+          <button class="mode-btn active" data-mode="AUTO" onclick="app.setMode('AUTO')">AUTO</button>
+          <button class="mode-btn" data-mode="MANUAL" onclick="app.setMode('MANUAL')">MANUAL</button>
+          <button class="mode-btn" data-mode="ECO" onclick="app.setMode('ECO')">ECO</button>
+          <button class="mode-btn warning" data-mode="RECOVERY" onclick="app.setMode('RECOVERY')">RECOVERY</button>
+        </div>
+        <div class="status-row">Mode Ack: <span id="mode-ack">Idle</span></div>
+      </div>
+
+      <div class="card control">
+        <div class="card-title">Cooling Fan Override</div>
+        <div class="card-value"><span id="val-fan">0</span><span class="card-unit">%</span></div>
+        <div class="status-row">State: <span id="fan-ack">Idle</span></div>
+        <div class="slider-container">
+          <input type="range" id="fan-slider" min="0" max="100" value="0">
+        </div>
+      </div>
+
+      <div class="card control">
+        <div class="card-title">AC IR Interface</div>
+        <div class="ac-controls">
+          <div class="card-value"><span id="val-ac-temp">24</span><span class="card-unit">°C</span></div>
+          <div class="btn-group" style="margin-bottom: 15px;">
+            <button class="btn-icon" onclick="app.adjustAC(-1)">-</button>
+            <button class="btn-icon" onclick="app.adjustAC(1)">+</button>
+          </div>
+          <button class="btn-full" id="btn-ac-power" onclick="app.toggleAC()">POWER ON</button>
+          <div class="status-row">IR Status: <span id="ac-ack">Idle</span></div>
+        </div>
+      </div>
+
+      <div class="card full-width">
+        <div class="card-title">Thermal Telemetry History</div>
+        <div class="chart-filters" style="margin-bottom: 10px; display: flex; gap: 10px;">
+          <button class="btn-small outline" onclick="app.updateChartFilter('15m')">15 Min</button>
+          <button class="btn-small outline" onclick="app.updateChartFilter('1h')">1 Hour</button>
+        </div>
+        <div class="chart-container">
+          <canvas id="telemetryChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    class ComfortEngine {
+      static evaluate(ambient, object, humidity) {
+        if (!ambient || !object || !humidity) return { status: "INSUFFICIENT DATA", color: "var(--warning)", targetFan: 0 };
+        const deltaT = object - ambient;
+        let status = "COMFORTABLE";
+        let color = "var(--good)";
+        
+        if (ambient > 26 || (ambient > 24 && humidity > 60) || object > 35.5) {
+          status = "FEELING WARM"; color = "var(--warning)";
+        } else if (ambient < 20 || deltaT > 12 || object < 32.0) {
+          status = "FEELING COLD"; color = "var(--cyan-primary)";
+        }
+        return { status, color };
+      }
+    }
+
+    class SimulationProvider {
+      constructor() {
+        this.interval = null;
+        this.deviceId = 'demo_simulation';
+        this.currentMode = 'AUTO';
+        this.state = { ambient: 25.5, object: 34.8, humidity: 55.0, fanSpeed: 0, acPower: false, acTemp: 24 };
+      }
+      subscribe(callback) {
+        this.interval = setInterval(() => {
+          this.state.ambient += (Math.random() * 0.2 - 0.1);
+          this.state.object += (Math.random() * 0.4 - 0.2);
+          this.state.humidity += (Math.random() * 1.0 - 0.5);
+
+          if (this.state.fanSpeed > 0) {
+            let coolingFactor = (this.state.fanSpeed / 100) * 0.3;
+            this.state.object -= coolingFactor;
+            if (this.state.object < 31.0) this.state.object = 31.0;
+          } else {
+            if (this.state.object < 35.0) this.state.object += 0.1;
+          }
+
+          if (this.state.acPower) {
+            if (this.state.ambient > this.state.acTemp) this.state.ambient -= 0.15;
+            this.state.humidity -= 0.2; 
+          } else {
+            if (this.state.ambient < 26.0) this.state.ambient += 0.05;
+          }
+          
+          if(this.state.humidity < 30) this.state.humidity = 30;
+          if(this.state.humidity > 80) this.state.humidity = 80;
+
+          callback({ ambient: this.state.ambient, object: this.state.object, humidity: this.state.humidity, timestamp: Date.now() });
+          
+          document.getElementById('dev-ping').innerText = new Date().toLocaleTimeString();
+          document.getElementById('health-ambient').innerText = 'OK (SIM)';
+          document.getElementById('health-object').innerText = 'OK (SIM)';
+        }, 2000);
+      }
+      sendCommand(target, payload) {
+        const ackEl = document.getElementById(`${target}-ack`);
+        if(ackEl) ackEl.innerText = 'Pending...';
+        
+        if (target === 'fan') this.state.fanSpeed = parseInt(payload);
+        else if (target === 'mode') this.currentMode = payload;
+        else if (target === 'ac') {
+          if (payload.type === 'power') this.state.acPower = (payload.value === 'on');
+          if (payload.type === 'temp') this.state.acTemp = parseInt(payload.value);
+        }
+        setTimeout(() => { if(ackEl) ackEl.innerText = 'APPLIED (SIM)'; }, 600);
+      }
+      unsubscribe() {
+        if (this.interval) clearInterval(this.interval);
+      }
+    }
+
+    class FirebaseHardwareProvider {
+      constructor(deviceId) {
+        this.deviceId = deviceId;
+        this.currentMode = 'AUTO';
+      }
+      subscribe(callback) {
+        alert("Firebase is not linked yet. Switching back to local Simulation.");
+        app.switchDevice('demo');
+        document.getElementById('device-selector').value = 'demo';
+      }
+      sendCommand(target, payload) {}
+      unsubscribe() {}
+    }
+
+    const app = {
+      useSimulation: true,
+      provider: null,
+      chart: null,
+      chartFilterHours: 1, 
+      
+      init() {
+        this.initCanvas(); 
+      },
+
+      enterDashboard() {
+        document.getElementById('intro-screen').classList.add('fade-out');
+        setTimeout(() => {
+          document.getElementById('intro-screen').style.display = 'none';
+          document.getElementById('main-dashboard').style.display = 'flex';
+          setTimeout(() => {
+            document.getElementById('main-dashboard').classList.add('visible');
+            document.body.classList.remove('locked');
+            this.setupChart();
+            this.bindEvents();
+            this.switchDevice('demo'); 
+          }, 50);
+        }, 800);
+      },
+
+      switchDevice(deviceId) {
+        if (this.provider) this.provider.unsubscribe();
+        
+        const modeBadge = document.getElementById('mode-badge');
+        const modeText = document.getElementById('system-mode-text');
+        
+        if (deviceId === 'demo') {
+          this.useSimulation = true;
+          this.provider = new SimulationProvider();
+          modeText.innerText = "DEMO MODE";
+          modeBadge.className = "status-badge warning";
+        } else {
+          this.useSimulation = false;
+          this.provider = new FirebaseHardwareProvider(deviceId);
+          modeText.innerText = "LIVE TELEMETRY";
+          modeBadge.className = "status-badge";
+        }
+        
+        this.provider.subscribe((data) => {
+          document.getElementById('val-ambient').innerText = data.ambient.toFixed(1);
+          document.getElementById('val-object').innerText = data.object.toFixed(1);
+          document.getElementById('val-humidity').innerText = data.humidity.toFixed(1);
+          
+          const comfort = ComfortEngine.evaluate(data.ambient, data.object, data.humidity);
+          const statusEl = document.getElementById('comfort-status');
+          statusEl.innerText = comfort.status;
+          statusEl.style.color = comfort.color;
+          
+          this.updateChart(data.ambient, data.object);
+        });
+      },
+
+      promptPairing() {
+        const newId = prompt("Enter Authorized ESP32 Device ID:");
+        if(newId && newId.trim() !== "") {
+          const select = document.getElementById('device-selector');
+          const option = document.createElement('option');
+          option.value = newId;
+          option.text = `Hardware: ${newId}`;
+          select.add(option);
+          select.value = newId;
+          this.switchDevice(newId);
+        }
+      },
+
+      bindEvents() {
+        const fanSlider = document.getElementById('fan-slider');
+        fanSlider.addEventListener('change', (e) => {
+          if (this.provider.currentMode === 'AUTO') {
+            document.getElementById('fan-ack').innerText = 'LOCKED IN AUTO';
+            return;
+          }
+          document.getElementById('val-fan').innerText = e.target.value;
+          this.provider.sendCommand('fan', e.target.value);
+        });
+      },
+
+      setMode(mode) {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector(`.mode-btn[data-mode="${mode}"]`).classList.add('active');
+        document.getElementById('fan-slider').disabled = (mode === 'AUTO');
+        this.provider.sendCommand('mode', mode);
+      },
+
+      adjustAC(dir) {
+        let tempEl = document.getElementById('val-ac-temp');
+        let newTemp = parseInt(tempEl.innerText) + dir;
+        if(newTemp >= 16 && newTemp <= 30) {
+          tempEl.innerText = newTemp;
+          this.provider.sendCommand('ac', { type: 'temp', value: newTemp });
+        }
+      },
+
+      toggleAC() {
+        let btn = document.getElementById('btn-ac-power');
+        let isOff = btn.innerText.includes('ON');
+        btn.innerText = isOff ? 'POWER OFF' : 'POWER ON';
+        btn.style.background = isOff ? 'var(--danger)' : 'var(--cyan-primary)';
+        btn.style.color = isOff ? '#fff' : '#000';
+        this.provider.sendCommand('ac', { type: 'power', value: isOff ? 'on' : 'off' });
+      },
+
+      submitFeedback(type) {
+        const btnGroup = document.querySelector('.feedback-panel .btn-group');
+        const originalHtml = btnGroup.innerHTML;
+        btnGroup.innerHTML = '<p class="mono-data good">FEEDBACK RECORDED</p>';
+        setTimeout(() => { btnGroup.innerHTML = originalHtml; }, 2000);
+      },
+
+      setupChart() {
+        const ctx = document.getElementById('telemetryChart').getContext('2d');
+        Chart.defaults.color = '#8892b0';
+        Chart.defaults.font.family = "'Space Mono', monospace";
+        this.chart = new Chart(ctx, {
+          type: 'line',
+          data: { labels: [], datasets: [
+            { label: 'Ambient °C', borderColor: '#00d2ff', backgroundColor: 'rgba(0, 210, 255, 0.1)', data: [], tension: 0.4, fill: true },
+            { label: 'Object °C', borderColor: '#ffb86c', data: [], tension: 0.4 }
+          ]},
+          options: { 
+            responsive: true, maintainAspectRatio: false, animation: false,
+            scales: { y: { min: 15, max: 40 } },
+            plugins: { legend: { position: 'top' } }
+          }
+        });
+      },
+
+      updateChart(ambient, object) {
+        const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+        const maxPoints = this.chartFilterHours === 1 ? 30 : 10; 
+        
+        if(this.chart.data.labels.length > maxPoints) {
+          this.chart.data.labels.shift();
+          this.chart.data.datasets.forEach(d => d.data.shift());
+        }
+        this.chart.data.labels.push(time);
+        this.chart.data.datasets[0].data.push(ambient);
+        this.chart.data.datasets[1].data.push(object);
+        this.chart.update();
+      },
+
+      updateChartFilter(timeStr) {
+        this.chartFilterHours = timeStr === '1h' ? 1 : 0.25;
+        this.chart.data.labels = [];
+        this.chart.data.datasets.forEach(d => d.data = []);
+        this.chart.update();
+      },
+
+      initCanvas() {
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        let particles = [];
+        for(let i = 0; i < Math.floor((width * height) / 10000); i++) {
+          particles.push({ x: Math.random()*width, y: Math.random()*height, vx: (Math.random()-0.5)*0.8, vy: (Math.random()-0.5)*0.8, radius: Math.random()*1.5+0.5 });
+        }
+        
+        function animate() {
+          requestAnimationFrame(animate);
+          ctx.clearRect(0, 0, width, height);
+          for(let i=0; i<particles.length; i++) {
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy;
+            if(p.x < 0 || p.x > width) p.vx *= -1;
+            if(p.y < 0 || p.y > height) p.vy *= -1;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2); ctx.fillStyle = 'rgba(0, 210, 255, 0.7)'; ctx.fill();
+            for(let j=i+1; j<particles.length; j++) {
+              let p2 = particles[j];
+              let dist = Math.sqrt((p.x-p2.x)**2 + (p.y-p2.y)**2);
+              if(dist < 140) { ctx.beginPath(); ctx.strokeStyle = `rgba(0, 210, 255, ${(1-dist/140)*0.4})`; ctx.lineWidth = 0.6; ctx.moveTo(p.x, p.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); }
+            }
+          }
+        }
+        animate();
+        window.addEventListener('resize', () => { 
+          width = canvas.width = window.innerWidth; 
+          height = canvas.height = window.innerHeight; 
+        });
+      }
+    };
+
+    window.onload = () => app.init();
+  </script>
+</body>
+</html>
